@@ -13,21 +13,31 @@ template <int ROWS_A, int COLS_A, int COLS_B>
 SC_MODULE(systolicArray_weightedstationary) {
     sc_in<bool> clk;
     sc_in<bool> reset;
-    sc_in<sc_int<8>> X_in[ROWS_A];
+    sc_in<sc_int<8>> X_in[COLS_A];
 
     sc_out<sc_int<32>> result[ROWS_A][COLS_B];
     sc_out<sc_int<32>> shifted_out[ROWS_A][COLS_B];
 
     MacUnit_weightedstationary<COLS_A>* mac_array[COLS_A][COLS_B];
 
-    sc_signal<sc_int<8>> X_in_buffer[ROWS_A];
-    sc_signal<sc_int<8>> X_intermodule_sig[ROWS_A][COLS_B + 1];
+    sc_signal<sc_int<8>> X_in_buffer[COLS_A];
+    sc_signal<sc_int<8>> X_intermodule_sig[COLS_A][COLS_B + 1];
     sc_signal<sc_int<32>> partial_sum_sig[ROWS_A][COLS_B];
 
     sc_signal<sc_int<32>> zero_sig[COLS_B];   
 
     sc_in<bool> start_readout;
 
+    struct FifoPacket {
+        int row_index;
+        sc_int<32> value;
+    };
+
+
+    sc_fifo<sc_int<32>>* output_fifo[COLS_B];
+
+    int cycle_count = 0;
+    int pipeline_latency =  2 * ROWS_A + COLS_B + COLS_A -1;
 
 
     vector<vector<sc_int<8>>> A, B;
@@ -120,11 +130,28 @@ SC_MODULE(systolicArray_weightedstationary) {
     }
 
     void update_input_buffer() {
-        for (int i = 0; i < ROWS_A; i++)
+        for (int i = 0; i < COLS_A; i++)
             X_in_buffer[i].write(X_in[i].read());
     }
 
+    void write_to_fifo() {
+        if (!reset.read() && cycle_count > pipeline_latency) {
+            for (int j = 0; j < COLS_B; j++) {
+                cout << "Writing to output FIFO[" << j << "] at cycle " << cycle_count << endl;
+                cout << "Partial sum from PE[" << COLS_A - 1 << "][" << j << "] = " 
+                     << partial_sum_sig[COLS_A - 1][j].read() << endl;
+                output_fifo[j]->write(partial_sum_sig[COLS_A-1][j].read());
+                cout << "Output FIFO[" << j << "] size: " << output_fifo[j]->num_available() << endl;
+            }
+        }
+        cycle_count++;
+    }
+
+
     SC_CTOR(systolicArray_weightedstationary) {
+        for (int j = 0; j < COLS_B; j++) {
+            output_fifo[j] = new sc_fifo<sc_int<32>>(16);
+        }
 
         for (int j = 0; j < COLS_B; j++) {
             zero_sig[j].write(0);
@@ -156,14 +183,21 @@ SC_MODULE(systolicArray_weightedstationary) {
 
        //SC_THREAD(shift_results);
         SC_METHOD(update_input_buffer);
-        for (int i = 0; i < ROWS_A; i++)
+        for (int i = 0; i < COLS_A; i++)
             sensitive << X_in[i];
+
+        SC_METHOD(write_to_fifo);
+        sensitive << clk.pos();
+
     }
 
     ~systolicArray_weightedstationary() {
         for (int i = 0; i < COLS_A; i++)
             for (int j = 0; j < COLS_B; j++)
                 delete mac_array[i][j];
+
+        for (int j = 0; j < COLS_B; j++)
+            delete output_fifo[j];
     }
 };
 

@@ -15,7 +15,7 @@ SC_MODULE(Controller) {
     sc_in<bool> reset;
 
     // sc_signal<sc_int<8>>* X_in_sig;
-    sc_signal<sc_int<8>> (&X_in_sig)[RowsA];
+    sc_signal<sc_int<8>> (&X_in_sig)[ColsA];
 
     SRAM<RowsA, ColsA, ColsB>* input_sram;
     SRAM<RowsA, ColsA, ColsB>* weight_sram;   
@@ -77,7 +77,8 @@ SC_MODULE(Controller) {
                 case WAIT_DONE:
                     cout << "[Controller] -> WAIT_DONE\n";
                     compute_cycle++;
-                    if (compute_cycle >= ColsA + ColsB) {
+                    // if (compute_cycle >= ColsA + ColsB) {
+                    if (compute_cycle >= RowsA + ColsB) {
                         current_state = WRITE_OUTPUTS;
                     }
                     break;
@@ -167,17 +168,29 @@ SC_MODULE(Controller) {
 
 
 
+    // void write_outputs() {
+    //     for (int i = 0; i < RowsA; i++) {
+    //         for (int j = 0; j < ColsB; j++) {
+    //             sc_int<32> result = systolic_array->get_result(i, j);
+    //             output_sram->write_output(i, j, result);
+    //             cout << "[Controller] Output C[" << i << "][" << j << "] = " << result << "\n";
+    //         }
+    //     }
+    // }
+
+
     void write_outputs() {
         for (int i = 0; i < RowsA; i++) {
             for (int j = 0; j < ColsB; j++) {
-                sc_int<32> result = systolic_array->get_result(i, j);
-                output_sram->write_output(i, j, result);
-                cout << "[Controller] Output C[" << i << "][" << j << "] = " << result << "\n";
+                sc_int<32> result_val = systolic_array->output_fifo[j]->read();
+                output_sram->write_output(i, j, result_val);
+                cout << "[Controller] Output C[" << i << "][" << j << "] = " << result_val << "\n";
             }
         }
     }
 
-    SC_CTOR(Controller, sc_signal<sc_int<8>> (&X_in_ref)[RowsA])
+
+    SC_CTOR(Controller, sc_signal<sc_int<8>> (&X_in_ref)[ColsA])
     : X_in_sig(X_in_ref) {
         for (int i = 0; i < ColsA; i++) {
             string name = "flipflop_" + to_string(i);
